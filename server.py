@@ -1129,7 +1129,7 @@ async def send_contact_confirmation_email(contact_data: dict):
         params = {
             "from": SENDER_EMAIL,
             "to": [email],
-            "subject": f"Thank you for contacting NB Rents!",
+            "subject": "Thank you for contacting NB Rents!",
             "html": html_content
         }
         
@@ -1246,7 +1246,7 @@ async def send_admin_notification(request_data: dict, tenant_name: str):
         
         # Run sync SDK in thread to keep FastAPI non-blocking
         await asyncio.to_thread(resend.Emails.send, params)
-        logger.info(f"Admin notification email sent for maintenance request")
+        logger.info("Admin notification email sent for maintenance request")
     except Exception as e:
         logger.error(f"Failed to send admin notification email: {str(e)}")
 
@@ -1891,6 +1891,133 @@ class AdminCreate(BaseModel):
     email: EmailStr
     password: str
     admin_secret: str
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    name: str
+    password: str
+    phone: Optional[str] = None
+    user_type: str = "tenant"
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    user_type: Optional[str] = None
+
+class PasswordReset(BaseModel):
+    new_password: str
+
+@api_router.get("/admin/users")
+async def get_all_users(current_user: dict = Depends(get_current_user)):
+    """Get all users (admin only)"""
+    if current_user.get("user_type") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
+    return users
+
+@api_router.post("/admin/users")
+async def create_user(user_data: UserCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new user (admin only)"""
+    if current_user.get("user_type") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Check if email already exists (case insensitive)
+    existing = await db.users.find_one({"email": {"$regex": f"^{user_data.email}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user_id = str(uuid.uuid4())
+    user_dict = {
+        "id": user_id,
+        "email": user_data.email.lower(),
+        "name": user_data.name,
+        "phone": user_data.phone,
+        "user_type": user_data.user_type,
+        "password": hash_password(user_data.password),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.users.insert_one(user_dict)
+    
+    # Return user without password
+    del user_dict["password"]
+    if "_id" in user_dict:
+        del user_dict["_id"]
+    
+    return user_dict
+
+@api_router.put("/admin/users/{user_id}")
+async def update_user(user_id: str, user_data: UserUpdate, current_user: dict = Depends(get_current_user)):
+    """Update a user's info (admin only)"""
+    if current_user.get("user_type") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Check if user exists
+    existing = await db.users.find_one({"id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Build update dict with only provided fields
+    update_dict = {}
+    if user_data.name is not None:
+        update_dict["name"] = user_data.name
+    if user_data.email is not None:
+        # Check if new email is already taken by another user
+        email_check = await db.users.find_one({
+            "email": {"$regex": f"^{user_data.email}$", "$options": "i"},
+            "id": {"$ne": user_id}
+        })
+        if email_check:
+            raise HTTPException(status_code=400, detail="Email already in use")
+        update_dict["email"] = user_data.email.lower()
+    if user_data.phone is not None:
+        update_dict["phone"] = user_data.phone
+    if user_data.user_type is not None:
+        update_dict["user_type"] = user_data.user_type
+    
+    if update_dict:
+        await db.users.update_one({"id": user_id}, {"$set": update_dict})
+    
+    # Return updated user
+    updated = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
+    return updated
+
+@api_router.put("/admin/users/{user_id}/reset-password")
+async def reset_user_password(user_id: str, password_data: PasswordReset, current_user: dict = Depends(get_current_user)):
+    """Reset a user's password (admin only)"""
+    if current_user.get("user_type") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Check if user exists
+    existing = await db.users.find_one({"id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Hash and update password
+    hashed_password = hash_password(password_data.new_password)
+    await db.users.update_one({"id": user_id}, {"$set": {"password": hashed_password}})
+    
+    return {"message": "Password reset successfully"}
+
+@api_router.delete("/admin/users/{user_id}")
+async def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a user (admin only)"""
+    if current_user.get("user_type") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Prevent deleting yourself
+    if user_id == current_user.get("id"):
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    # Check if user exists
+    existing = await db.users.find_one({"id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.delete_one({"id": user_id})
+    return {"message": "User deleted successfully"}
 
 @api_router.post("/admin/create")
 async def create_admin(admin_data: AdminCreate):
