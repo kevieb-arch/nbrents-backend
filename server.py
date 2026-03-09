@@ -132,6 +132,7 @@ class UserBase(BaseModel):
     name: str
     phone: Optional[str] = None
     user_type: str = Field(default="tenant", description="owner, tenant, admin, or service")
+    is_staff: bool = Field(default=False, description="Is this user NB Rents staff?")
 
 class UserCreate(UserBase):
     password: str
@@ -154,6 +155,7 @@ class UserResponse(BaseModel):
     name: str
     phone: Optional[str] = None
     user_type: str
+    is_staff: bool = False
     sms_opt_out: bool = False
     push_opt_out: bool = False
     created_at: str
@@ -1587,10 +1589,10 @@ async def get_service_stats(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/owner/properties", response_model=List[PropertyResponse])
 async def get_owner_properties(current_user: dict = Depends(get_current_user)):
-    if current_user["user_type"] == "admin":
-        # Admin sees all properties
+    # Admin or staff see all properties
+    if current_user.get("user_type") == "admin" or current_user.get("is_staff"):
         properties = await db.properties.find({}, {"_id": 0}).to_list(100)
-    elif current_user["user_type"] == "owner":
+    elif current_user.get("user_type") == "owner":
         # Owners only see their own properties
         properties = await db.properties.find(
             {"owner_id": current_user["id"]}, {"_id": 0}
@@ -1601,10 +1603,10 @@ async def get_owner_properties(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/owner/stats")
 async def get_owner_stats(current_user: dict = Depends(get_current_user)):
-    if current_user["user_type"] == "admin":
-        # Admin sees stats for all properties
+    # Admin or staff see stats for all properties
+    if current_user.get("user_type") == "admin" or current_user.get("is_staff"):
         properties = await db.properties.find({}).to_list(100)
-    elif current_user["user_type"] == "owner":
+    elif current_user.get("user_type") == "owner":
         # Owners see stats for their own properties only
         properties = await db.properties.find({"owner_id": current_user["id"]}).to_list(100)
     else:
@@ -1892,33 +1894,35 @@ class AdminCreate(BaseModel):
     password: str
     admin_secret: str
 
-class UserCreate(BaseModel):
+class AdminUserCreate(BaseModel):
     email: EmailStr
     name: str
     password: str
     phone: Optional[str] = None
     user_type: str = "tenant"
+    is_staff: bool = False
 
-class UserUpdate(BaseModel):
+class AdminUserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     user_type: Optional[str] = None
+    is_staff: Optional[bool] = None
 
-class PasswordReset(BaseModel):
+class AdminPasswordReset(BaseModel):
     new_password: str
 
 @api_router.get("/admin/users")
 async def get_all_users(current_user: dict = Depends(get_current_user)):
-    """Get all users (admin only)"""
-    if current_user.get("user_type") != "admin":
+    """Get all users (admin or staff only)"""
+    if current_user.get("user_type") != "admin" and not current_user.get("is_staff"):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
     return users
 
 @api_router.post("/admin/users")
-async def create_user(user_data: UserCreate, current_user: dict = Depends(get_current_user)):
+async def create_user(user_data: AdminUserCreate, current_user: dict = Depends(get_current_user)):
     """Create a new user (admin only)"""
     if current_user.get("user_type") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -1935,6 +1939,7 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
         "name": user_data.name,
         "phone": user_data.phone,
         "user_type": user_data.user_type,
+        "is_staff": user_data.is_staff,
         "password": hash_password(user_data.password),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -1949,7 +1954,7 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
     return user_dict
 
 @api_router.put("/admin/users/{user_id}")
-async def update_user(user_id: str, user_data: UserUpdate, current_user: dict = Depends(get_current_user)):
+async def update_user(user_id: str, user_data: AdminUserUpdate, current_user: dict = Depends(get_current_user)):
     """Update a user's info (admin only)"""
     if current_user.get("user_type") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -1976,6 +1981,8 @@ async def update_user(user_id: str, user_data: UserUpdate, current_user: dict = 
         update_dict["phone"] = user_data.phone
     if user_data.user_type is not None:
         update_dict["user_type"] = user_data.user_type
+    if user_data.is_staff is not None:
+        update_dict["is_staff"] = user_data.is_staff
     
     if update_dict:
         await db.users.update_one({"id": user_id}, {"$set": update_dict})
@@ -1985,7 +1992,7 @@ async def update_user(user_id: str, user_data: UserUpdate, current_user: dict = 
     return updated
 
 @api_router.put("/admin/users/{user_id}/reset-password")
-async def reset_user_password(user_id: str, password_data: PasswordReset, current_user: dict = Depends(get_current_user)):
+async def reset_user_password(user_id: str, password_data: AdminPasswordReset, current_user: dict = Depends(get_current_user)):
     """Reset a user's password (admin only)"""
     if current_user.get("user_type") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
