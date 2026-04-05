@@ -32,21 +32,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # MongoDB connection
-import ssl
 mongo_url = os.environ['MONGO_URL']
-# Handle SSL/TLS issues with MongoDB Atlas
-try:
-    # First try with default SSL settings
+# Use TLS for Atlas connections, plain for localhost
+if 'mongodb+srv' in mongo_url or 'mongodb.net' in mongo_url:
     client = AsyncIOMotorClient(
         mongo_url,
         tls=True,
         tlsAllowInvalidCertificates=True,
         serverSelectionTimeoutMS=30000
     )
-    logger.info("MongoDB client initialized with TLS settings")
-except Exception as e:
-    logger.warning(f"Failed to connect with TLS settings, trying without: {e}")
-    client = AsyncIOMotorClient(mongo_url)
+    logger.info("MongoDB client initialized with TLS settings (Atlas)")
+else:
+    client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=30000)
+    logger.info("MongoDB client initialized for local connection")
 db = client[os.environ['DB_NAME']]
 
 # JWT Configuration
@@ -479,7 +477,7 @@ async def send_password_reset_email(email: str, reset_token: str, user_name: str
     
     try:
         # Use frontend URL from environment variable
-        frontend_url = os.environ.get('FRONTEND_URL', 'https://maintenance-hub-test-1.preview.emergentagent.com')
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://owner-staff-test.preview.emergentagent.com')
         reset_link = f"{frontend_url}/?reset_token={reset_token}"
         
         html_content = f"""
@@ -1659,14 +1657,14 @@ async def get_tenant_dashboard(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/seed")
 async def seed_data():
-    """Seed the database with sample data"""
+    """Seed the database with sample data (only adds if collections are empty)"""
     
-    # Clear existing data
-    await db.properties.delete_many({})
-    await db.testimonials.delete_many({})
+    result = {"message": "Database seeded successfully"}
     
-    # Sample properties with coordinates for New Brunswick cities
-    properties = [
+    # Only seed properties if none exist
+    existing_properties = await db.properties.count_documents({})
+    if existing_properties == 0:
+        properties = [
         {
             "id": str(uuid.uuid4()),
             "title": "Modern Downtown Apartment",
@@ -1789,10 +1787,15 @@ async def seed_data():
         }
     ]
     
-    await db.properties.insert_many(properties)
+        await db.properties.insert_many(properties)
+        result["properties"] = len(properties)
+    else:
+        result["properties"] = f"Skipped ({existing_properties} already exist)"
     
-    # Sample testimonials
-    testimonials = [
+    # Only seed testimonials if none exist
+    existing_testimonials = await db.testimonials.count_documents({})
+    if existing_testimonials == 0:
+        testimonials = [
         {
             "id": str(uuid.uuid4()),
             "name": "Sarah Mitchell",
@@ -1835,9 +1838,12 @@ async def seed_data():
         }
     ]
     
-    await db.testimonials.insert_many(testimonials)
+        await db.testimonials.insert_many(testimonials)
+        result["testimonials"] = len(testimonials)
+    else:
+        result["testimonials"] = f"Skipped ({existing_testimonials} already exist)"
     
-    return {"message": "Database seeded successfully", "properties": len(properties), "testimonials": len(testimonials)}
+    return result
 
 # ==================== ADMIN SETUP ====================
 
