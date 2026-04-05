@@ -58,7 +58,7 @@ JWT_ALGORITHM = "HS256"
 # Resend Configuration
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
-ADMIN_NOTIFICATION_EMAIL = os.environ.get('ADMIN_NOTIFICATION_EMAIL', 'admin@nbrents.ca')
+ADMIN_NOTIFICATION_EMAIL = os.environ.get('ADMIN_NOTIFICATION_EMAIL', 'Hello@NBRents.ca')
 
 if RESEND_API_KEY and RESEND_API_KEY != 're_your_api_key_here':
     resend.api_key = RESEND_API_KEY
@@ -100,7 +100,7 @@ else:
 # VAPID Configuration for Push Notifications
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY')
-VAPID_EMAIL = os.environ.get('VAPID_EMAIL', 'mailto:help@nbrents.ca')
+VAPID_EMAIL = os.environ.get('VAPID_EMAIL', 'mailto:Hello@NBRents.ca')
 
 if VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY:
     logger.info("VAPID keys configured for push notifications")
@@ -1049,7 +1049,7 @@ async def send_contact_form_notification(contact_data: dict):
             
             <div style="background: #1f2937; color: #9ca3af; padding: 20px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
                 <p style="margin: 0;">NB Rents Property Management</p>
-                <p style="margin: 5px 0 0 0;">(506) 962-RENT(7368) | <a href="mailto:Help@NBRents.ca" style="color: #9ca3af;">Help@NBRents.ca</a></p>
+                <p style="margin: 5px 0 0 0;">(506) 962-RENT(7368) | <a href="mailto:Hello@NBRents.ca" style="color: #9ca3af;">Hello@NBRents.ca</a></p>
             </div>
         </div>
         """
@@ -1121,7 +1121,7 @@ async def send_contact_confirmation_email(contact_data: dict):
             <div style="background: #1f2937; color: #9ca3af; padding: 20px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
                 <p style="margin: 0;">NB Rents Property Management</p>
                 <p style="margin: 5px 0 0 0;">72 Elizabeth St. Unit 85, Miramichi, NB E1V 1W1</p>
-                <p style="margin: 5px 0 0 0;">(506) 962-RENT(7368) | <a href="mailto:Help@NBRents.ca" style="color: #9ca3af;">Help@NBRents.ca</a></p>
+                <p style="margin: 5px 0 0 0;">(506) 962-RENT(7368) | <a href="mailto:Hello@NBRents.ca" style="color: #9ca3af;">Hello@NBRents.ca</a></p>
             </div>
         </div>
         """
@@ -1168,7 +1168,7 @@ async def create_testimonial(testimonial: TestimonialBase, current_user: dict = 
 # ==================== MAINTENANCE REQUEST ROUTES ====================
 
 async def send_admin_notification(request_data: dict, tenant_name: str):
-    """Send email notification to Help@NBRents.ca when a maintenance request is submitted"""
+    """Send email notification to Hello@NBRents.ca when a maintenance request is submitted"""
     if not RESEND_API_KEY or RESEND_API_KEY == 're_your_api_key_here':
         logger.info("Email notification skipped - Resend not configured")
         return
@@ -1318,7 +1318,7 @@ async def send_tenant_confirmation(request_data: dict):
             </div>
             <div style="background: #1f2937; color: #9ca3af; padding: 15px; text-align: center; font-size: 12px;">
                 NB Rents Property Management | (506) 962-RENT(7368)<br>
-                <a href="mailto:Help@NBRents.ca" style="color: #9ca3af;">Help@NBRents.ca</a>
+                <a href="mailto:Hello@NBRents.ca" style="color: #9ca3af;">Hello@NBRents.ca</a>
             </div>
         </div>
         """
@@ -1464,7 +1464,7 @@ async def send_tenant_update_notification(request_data: dict, update_note: str, 
             </div>
             <div style="background: #1f2937; color: #9ca3af; padding: 15px; text-align: center; font-size: 12px;">
                 NB Rents Property Management | (506) 962-RENT(7368)<br>
-                <a href="mailto:Help@NBRents.ca" style="color: #9ca3af;">Help@NBRents.ca</a>
+                <a href="mailto:Hello@NBRents.ca" style="color: #9ca3af;">Hello@NBRents.ca</a>
             </div>
         </div>
         """
