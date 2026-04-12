@@ -107,6 +107,28 @@ if VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY:
 else:
     logger.warning("VAPID keys not configured - push notifications disabled")
 
+# Google Maps Geocoding
+GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY')
+
+async def geocode_address(address: str) -> dict:
+    """Convert an address to latitude/longitude using Google Geocoding API"""
+    if not GOOGLE_MAPS_API_KEY or not address:
+        return {}
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params={"address": address, "key": GOOGLE_MAPS_API_KEY}
+            )
+            data = resp.json()
+            if data.get("results"):
+                loc = data["results"][0]["geometry"]["location"]
+                return {"latitude": loc["lat"], "longitude": loc["lng"]}
+    except Exception as e:
+        logger.error(f"Geocoding failed for '{address}': {e}")
+    return {}
+
 # Create uploads directory (fallback for local storage)
 UPLOADS_DIR = ROOT_DIR / "uploads"
 UPLOADS_DIR.mkdir(exist_ok=True)
@@ -638,6 +660,12 @@ async def create_property(
     property_dict["owner_id"] = current_user["id"]
     property_dict["created_at"] = datetime.now(timezone.utc).isoformat()
     
+    # Auto-geocode if address is provided but no coordinates
+    if not property_dict.get("latitude") or not property_dict.get("longitude"):
+        address = f"{property_dict.get('address', '')}, {property_dict.get('city', '')}, NB, Canada"
+        coords = await geocode_address(address)
+        property_dict.update(coords)
+    
     await db.properties.insert_one(property_dict)
     property_dict.pop("_id", None)
     return property_dict
@@ -656,6 +684,13 @@ async def update_property(
         raise HTTPException(status_code=403, detail="Not authorized")
     
     update_dict = property_data.model_dump()
+    
+    # Auto-geocode if address changed or no coordinates exist
+    if not update_dict.get("latitude") or not update_dict.get("longitude"):
+        address = f"{update_dict.get('address', '')}, {update_dict.get('city', '')}, NB, Canada"
+        coords = await geocode_address(address)
+        update_dict.update(coords)
+    
     await db.properties.update_one({"id": property_id}, {"$set": update_dict})
     
     updated = await db.properties.find_one({"id": property_id}, {"_id": 0})
@@ -681,6 +716,30 @@ async def toggle_featured(
     )
     
     return {"id": property_id, "featured": new_featured}
+
+@api_router.post("/properties/geocode-all")
+async def geocode_all_properties(current_user: dict = Depends(get_current_user)):
+    """Geocode all properties that are missing coordinates"""
+    if current_user["user_type"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    properties = await db.properties.find(
+        {"$or": [{"latitude": None}, {"latitude": {"$exists": False}}]}
+    ).to_list(100)
+    
+    updated = 0
+    for prop in properties:
+        address = f"{prop.get('address', '')}, {prop.get('city', '')}, NB, Canada"
+        coords = await geocode_address(address)
+        if coords:
+            await db.properties.update_one(
+                {"id": prop["id"]},
+                {"$set": coords}
+            )
+            updated += 1
+    
+    return {"message": f"Geocoded {updated} of {len(properties)} properties"}
+
 
 @api_router.patch("/properties/{property_id}/status")
 async def update_property_status(
